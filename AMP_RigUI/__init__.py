@@ -4,30 +4,145 @@ bl_info = {
     "category": "Animation",
     "description": "UI to manage RIG UI in Blender",
     "author": "NotThatNDA",
-    "version": (1, 0, 0),
+    "version": (1, 0, 3),
     "doc_url": "https://discord.gg/Em7sa72H97",
     "tracker_url": "https://discord.gg/Em7sa72H97",
     "location": "View3D > Side Panel",
     "warning": "Alpha",
 }
 
-bl_info = {
-    "name": "AniMate Pro",
-    "author": "not that NDA",
-    "description": "Modular collection of animation tools",
-    "blender": (3, 6, 0),
-    "version": (1, 2, 9),
-    "location": "",
-    "warning": "alpha",
-    "doc_url": "",
-    "tracker_url": "",
-    "category": "Animation",
-}
 
 import bpy
 import os
 
 should_update = True
+
+
+# Array property type for storing recent icons
+def get_recent_icons(self):
+    return self.get("recent_icons", "")
+
+
+def set_recent_icons(self, value):
+    if isinstance(value, list):
+        self["recent_icons"] = ",".join(value)
+    elif isinstance(value, str):
+        self["recent_icons"] = value
+    else:
+        self["recent_icons"] = ""
+
+
+bpy.types.Scene.recent_icons = bpy.props.StringProperty(
+    name="Recent Icons",
+    description="List of recently selected icons",
+    get=get_recent_icons,
+    set=set_recent_icons,
+    default="",
+)
+
+
+class RIG_UI_OT_IconSelector(bpy.types.Operator):
+    bl_idname = "rig_ui.icon_selector"
+    bl_label = ""
+    bl_options = {"REGISTER", "UNDO"}
+
+    bone_layer_name: bpy.props.StringProperty()
+    filter_text: bpy.props.StringProperty(
+        name="Filter", description="Filter icons by name"
+    )
+
+    all_icons = (
+        bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items.keys()
+    )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=800)
+
+    def filter_icons(self):
+        filter_lower = self.filter_text.lower()
+        return [icon for icon in self.all_icons if filter_lower in icon.lower()]
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        # Filter field
+        filter_row = layout.row()
+        split = filter_row.split(factor=0.05)
+        split.label(text="Filter:")
+        split.prop(self, "filter_text", text="")
+
+        # Recent Icons Section
+        recent_icons_box = layout.box()
+        recent_icons_box.alignment = "CENTER"
+        # recent_icons_box.label(text="Recent:")
+        recent_row = recent_icons_box.row(align=True)
+        recent_row.alignment = "CENTER"
+        recent_icons = scene.recent_icons.split(",")[-20:] if scene.recent_icons else []
+        for icon in recent_icons:
+            if icon and icon in self.all_icons:
+                op = recent_row.operator(
+                    "rig_ui.set_icon", text="", icon=icon, emboss=False
+                )
+                op.icon_name = icon
+                op.bone_layer_name = self.bone_layer_name
+
+        # All Icons Section
+        all_icons_box = layout.box()
+        # all_icons_box.label(text="All:")
+        all_col = all_icons_box.column(align=True)
+        filtered_icons = self.filter_icons()
+        row = None  # Initialize row variable
+        for i, icon in enumerate(filtered_icons):
+            if icon == "NONE":
+                continue
+            if i % 40 == 0 or row is None:
+                row = all_col.row(align=True)
+            op = row.operator("rig_ui.set_icon", text="", icon=icon, emboss=False)
+            op.icon_name = icon
+            op.bone_layer_name = self.bone_layer_name
+
+    def execute(self, context):
+        # This operator only opens the dialog, actual icon setting is handled in another operator
+        return {"FINISHED"}
+
+
+class RIG_UI_OT_SetIcon(bpy.types.Operator):
+    bl_idname = "rig_ui.set_icon"
+    bl_label = "Set Icon"
+    bl_options = {"REGISTER", "UNDO"}
+
+    icon_name: bpy.props.StringProperty()
+    bone_layer_name: bpy.props.StringProperty()
+
+    def refresh_ui(self, context):
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+
+    def execute(self, context):
+        self.refresh_ui(context)
+        # Set the icon to the bone layer
+        bone_layer = context.object.data.collections[self.bone_layer_name]
+        bone_layer["icon_name"] = self.icon_name
+
+        # Update recent icons
+        recent_icons = (
+            context.scene.recent_icons.split(",") if context.scene.recent_icons else []
+        )
+        if self.icon_name not in recent_icons:
+            recent_icons.append(self.icon_name)
+            if len(recent_icons) > 20:
+                recent_icons.pop(0)
+        context.scene.recent_icons = ",".join(recent_icons)
+
+        # Copy the icon name to the clipboard
+        context.window_manager.clipboard = self.icon_name
+        self.report(
+            {"INFO"}, f"Icon '{self.icon_name}' set for '{self.bone_layer_name}'"
+        )
+        return {"FINISHED"}
 
 
 class rig_ui_OT_export_rig_ui(bpy.types.Operator):
@@ -240,35 +355,29 @@ class AMP_UL_BoneLayers(bpy.types.UIList):
     ):
         armature = context.view_layer.objects.active
         if armature and armature.type == "ARMATURE":
-            # Ensure the bone layer is fetched correctly
             bone_layer = armature.data.collections.get(item.name)
             if bone_layer:
-                # Main row for all elements
                 row = layout.row(align=True)
 
-                # Column for UI_include toggle
+                # UI_include toggle
                 ui_include_icon = (
                     "HIDE_OFF" if bone_layer.get("UI_include", False) else "HIDE_ON"
                 )
                 row.prop(bone_layer, '["UI_include"]', icon=ui_include_icon, text="")
 
-                # Button to update icon from clipboard
-                icon_op = row.operator("rig_ui.paste_icon", text="", icon="PASTEDOWN")
-                icon_op.bone_layer_name = item.name
+                # Icon selection as an operator button
+                icon_name = bone_layer.get("icon_name", "BLANK1")
+                icon_name = "BLANK1" if icon_name == "NONE" else icon_name
 
-                # Set default icon to BLANK1 if not set or set to NONE
-                selected_icon = bone_layer.get("icon_name", "BLANK1")
-                selected_icon = "BLANK1" if selected_icon == "NONE" else selected_icon
+                # Button to open icon selector
+                icon_selector_op = row.operator(
+                    "rig_ui.icon_selector", text="", icon=icon_name
+                )
+                icon_selector_op.bone_layer_name = item.name
 
-                # Display the selected icon next to the button
-                row.label(text="", icon=selected_icon)
-
-                # Split for name, row, and priority
+                # Rest of the row for name, row, and priority
                 split = row.split(factor=0.5, align=True)
-
-                # Toggle for display_name with the actual name of the layer
                 split.prop(bone_layer, '["display_name"]', text=item.name, toggle=True)
-
                 sub_row = split.row(align=True)
                 sub_row.prop(bone_layer, '["row"]', text="")
                 sub_row.prop(bone_layer, '["priority"]', text="")
@@ -311,22 +420,6 @@ class AMP_PT_BoneLayersSetup(bpy.types.Panel):
                 # Export button next to the refresh button
                 row.operator("rig_ui.refresh_list", text="", icon="FILE_REFRESH")
                 row.operator("rig_ui.export_rig_ui", text="", icon="EXPORT")
-
-            # Check if Icon Viewer add-on is loaded
-            if scene.amp_edit_mode:
-                icon_viewer_loaded = (
-                    "development_icon_get" in bpy.context.preferences.addons
-                )
-                if icon_viewer_loaded:
-                    # Button to invoke Icon Viewer
-                    layout.operator(
-                        "iv.icons_show", text="Select Icon", icon="SEQ_PREVIEW"
-                    )
-                else:
-                    # Button to load Icon Viewer
-                    layout.operator(
-                        "rig_ui.load_icon_viewer", text="Activate Icon Viewer"
-                    )
 
             if scene.amp_edit_mode:
                 # Draw bone layer list first
@@ -550,47 +643,74 @@ class BoneLayerProperties(bpy.types.PropertyGroup):
     )
 
 
+# List of classes to register
+classes_to_register = [
+    rig_ui_OT_export_rig_ui,
+    rig_ui_OT_UpdatesidepanelPreferences,
+    BoneLayerAddonPreferences,
+    rig_ui_OT_Updatesidepanel,
+    BoneLayerProperties,
+    AMP_UL_BoneLayers,
+    rig_ui_OT_refresh_list,
+    rig_ui_OT_load_icon_viewer,
+    rig_ui_OT_paste_icon,
+    RIG_UI_OT_IconSelector,
+    RIG_UI_OT_SetIcon,
+]
+
+# Properties to register
+properties_to_register = {
+    bpy.types.Armature: [
+        (
+            "bone_layer_properties",
+            bpy.props.CollectionProperty(type=BoneLayerProperties),
+        ),
+        (
+            "active_bone_layer_index",
+            bpy.props.IntProperty(name="Active Bone Layer Index"),
+        ),
+    ],
+    bpy.types.Scene: [
+        (
+            "amp_edit_mode",
+            bpy.props.BoolProperty(
+                name="Edit Mode", default=True, update=update_edit_mode
+            ),
+        ),
+        (
+            "selected_bone_layer_name",
+            bpy.props.StringProperty(),
+        ),
+    ],
+}
+
+
 def register():
-    # Register classes
-    bpy.utils.register_class(rig_ui_OT_export_rig_ui)
-    bpy.utils.register_class(rig_ui_OT_UpdatesidepanelPreferences)
-    bpy.utils.register_class(BoneLayerAddonPreferences)
-    bpy.utils.register_class(rig_ui_OT_Updatesidepanel)
-    bpy.utils.register_class(BoneLayerProperties)
-    bpy.utils.register_class(AMP_UL_BoneLayers)
-    bpy.utils.register_class(rig_ui_OT_refresh_list)
-    bpy.utils.register_class(rig_ui_OT_load_icon_viewer)
-    bpy.utils.register_class(rig_ui_OT_paste_icon)
-    bpy.types.Armature.bone_layer_properties = bpy.props.CollectionProperty(
-        type=BoneLayerProperties
-    )
+    # Register all classes
+    for cls in classes_to_register:
+        bpy.utils.register_class(cls)
 
-    # Initialize panels with default or stored sidepanel names
+    # Register all properties
+    for prop_type, props in properties_to_register.items():
+        for prop_name, prop_value in props:
+            setattr(prop_type, prop_name, prop_value)
+
+    # Additional setup if needed
     prefs = bpy.context.preferences.addons[__name__].preferences
-
     register_panels(prefs.rig_ui_setup_sidepanel, prefs.rig_ui_sidepanel)
-
-    bpy.types.Scene.amp_edit_mode = bpy.props.BoolProperty(
-        name="Edit Mode", default=True, update=update_edit_mode
-    )
-    bpy.types.Armature.active_bone_layer_index = bpy.props.IntProperty()
-    bpy.types.Scene.selected_bone_layer_name = bpy.props.StringProperty()
 
 
 def unregister():
-    bpy.utils.unregister_class(rig_ui_OT_export_rig_ui)
-    bpy.utils.unregister_class(rig_ui_OT_UpdatesidepanelPreferences)
-    bpy.utils.unregister_class(BoneLayerAddonPreferences)
-    bpy.utils.unregister_class(rig_ui_OT_Updatesidepanel)
-    bpy.utils.unregister_class(rig_ui_OT_load_icon_viewer)
-    bpy.utils.unregister_class(rig_ui_OT_paste_icon)
-    bpy.utils.unregister_class(rig_ui_OT_refresh_list)
-    bpy.utils.unregister_class(BoneLayerProperties)
-    bpy.utils.unregister_class(AMP_UL_BoneLayers)
-    del bpy.types.Scene.selected_bone_layer_name
-    del bpy.types.Scene.amp_edit_mode
-    del bpy.types.Armature.active_bone_layer_index
-    del bpy.types.Armature.bone_layer_properties
+    # Unregister all classes
+    for cls in reversed(classes_to_register):
+        bpy.utils.unregister_class(cls)
+
+    # Unregister all properties
+    for prop_type, props in properties_to_register.items():
+        for prop_name, _ in props:
+            delattr(prop_type, prop_name)
+
+    # Additional cleanup if needed
     unregister_panels()
 
 
