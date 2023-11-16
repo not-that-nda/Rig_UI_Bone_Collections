@@ -20,22 +20,11 @@ Bone Layers is an innovative Blender add-on designed to enhance the animation wo
 
 ## **Usage**
 
-### **Initial Setup**
+More information and documentation here:
+[Rig UI Documentation](https://notthatnda.notion.site/Rig-UI-Documentation-c6bdbd3e7e2c4a57a91866bb2250bf99)
 
-- Access the add-on preferences under **`Edit > Preferences > Add-ons > Bone Layers`**.
-- Set the **`Bone Layers Setup NPanel`** and **`Bone Layers NPanel`** to your preferred settings.
-
-### **Managing Bone Layers**
-
-- Select an armature and go to the **`Bone Layers Setup`** panel in the NPanel under the **`Animation`** tab.
-- Customize the bone layer properties such as name, row, and priority.
-- Toggle visibility and UI inclusion of each layer.
-
-### **Customizing Icons**
-
-- Use the icon selector to update icons for each bone layer.
-- Icons for each button can be left empty or changed for any icon from Blemder.
-- You can also display or hide the name of the bone layers and leave only the icons if you prefer.
+Quick features video:
+[Rig UI Features Overview]()
 
 ## **Support and Contribution**
 
