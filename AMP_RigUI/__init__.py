@@ -1,13 +1,13 @@
 bl_info = {
-    "name": "AMP Bone Layers",
+    "name": "AMP RIG UI",
     "blender": (4, 0, 0),
     "category": "Animation",
-    "description": "UI to manage bone layers in Blender",
+    "description": "UI to manage RIG UI in Blender",
     "author": "NotThatNDA",
     "version": (1, 0, 0),
     "doc_url": "https://discord.gg/Em7sa72H97",
     "tracker_url": "https://discord.gg/Em7sa72H97",
-    "location": "View3D > NPanel",
+    "location": "View3D > Side Panel",
     "warning": "Alpha",
 }
 
@@ -25,38 +25,120 @@ bl_info = {
 }
 
 import bpy
+import os
 
 should_update = True
+
+
+class rig_ui_OT_export_rig_ui(bpy.types.Operator):
+    """Export Rig UI script"""
+
+    bl_idname = "rig_ui.export_rig_ui"
+    bl_label = "Export Rig UI"
+    bl_options = {"REGISTER"}
+
+    # Define the filepath property which will store the path to save the file
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    def invoke(self, context, event):
+        # Initialize the filepath
+        armature = context.view_layer.objects.active
+        self.filepath = os.path.join(
+            bpy.path.abspath("//"), f"RigUI_{armature.name}.py"
+        )
+
+        # Open the file browser
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        # Generate and write the script to the specified file
+        armature = context.view_layer.objects.active
+        script_content = self.generate_script(armature)
+
+        with open(self.filepath, "w") as file:
+            file.write(script_content)
+
+        self.report({"INFO"}, f"Rig UI script exported to {self.filepath}")
+        return {"FINISHED"}
+
+    def generate_script(self, armature):
+        panel_name = f"AMP_PT_RigUI_{armature.name.replace(' ', '_')}"  # Replace spaces with underscores for valid identifier
+        script = f"""
+import bpy
+
+class {panel_name}(bpy.types.Panel):
+    \"\"\"Panel for Rig UI\"\"\"
+    bl_label = "Rig UI"
+    bl_idname = "{panel_name}"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Rig'
+
+    def draw(self, context):
+        layout = self.layout
+        armature = context.view_layer.objects.active
+
+        if armature and armature.type == 'ARMATURE':
+            ui_include_layers = [layer for layer in armature.data.collections.values() if layer.get('UI_include', False)]
+
+            sorted_ui_include_layers = sorted(ui_include_layers, key=lambda l: (l.get('row', 0), -l.get('priority', 0), l.name))
+
+            box = layout.box()
+            layers_by_row = {{}}
+
+            for layer in sorted_ui_include_layers:
+                row_num = layer.get('row', 0)
+                layers_by_row.setdefault(row_num, []).append(layer)
+
+            for row_num in sorted(layers_by_row.keys()):
+                row_layout = box.row()
+                for layer in sorted(layers_by_row[row_num], key=lambda l: (-l.get('priority', 0), l.name)):
+                    icon_name = layer.get('icon_name', 'NONE')
+                    icon_name = 'NONE' if icon_name == 'BLANK1' else icon_name
+                    display_text = layer.name if layer.get('display_name', False) else ''
+                    row_layout.prop(layer, 'is_visible', text=display_text, icon=icon_name, toggle=True)
+
+def register():
+    bpy.utils.register_class({panel_name})
+
+def unregister():
+    bpy.utils.unregister_class({panel_name})
+
+if __name__ == "__main__":
+    register()
+    """
+        return script
 
 
 class BoneLayerAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
 
-    bone_layers_setup_npanel: bpy.props.StringProperty(
-        name="Bone Layers Setup NPanel", default="Animation"
+    rig_ui_setup_sidepanel: bpy.props.StringProperty(
+        name="RIG UI Setup Side Panel", default="Animation"
     )
 
-    bone_layers_npanel: bpy.props.StringProperty(
-        name="Bone Layers NPanel", default="Animation"
+    rig_ui_sidepanel: bpy.props.StringProperty(
+        name="RIG UI Side Panel", default="Animation"
     )
 
     def draw(self, context):
         layout = self.layout
         prefs = context.preferences.addons[__name__].preferences
-        layout.prop(prefs, "bone_layers_setup_npanel")
-        layout.prop(prefs, "bone_layers_npanel")
-        layout.operator("bone_layers.update_npanel_preferences")
+        layout.prop(prefs, "rig_ui_setup_sidepanel")
+        layout.prop(prefs, "rig_ui_sidepanel")
+        layout.operator("rig_ui.update_side_panel_preferences")
 
 
-# Operator to update the NPanel preferences
-class BONE_LAYERS_OT_UpdateNPanelPreferences(bpy.types.Operator):
-    bl_idname = "bone_layers.update_npanel_preferences"
-    bl_label = "Update NPanel Preferences"
+# Operator to update the Side Panel preferences
+class rig_ui_OT_UpdatesidepanelPreferences(bpy.types.Operator):
+    bl_idname = "rig_ui.update_side_panel_preferences"
+    bl_label = "Update Side Panel Preferences"
 
     def execute(self, context):
         prefs = context.preferences.addons[__name__].preferences
         unregister_panels()
-        register_panels(prefs.bone_layers_setup_npanel, prefs.bone_layers_npanel)
+        register_panels(prefs.rig_ui_setup_sidepanel, prefs.rig_ui_sidepanel)
         return {"FINISHED"}
 
 
@@ -84,14 +166,14 @@ def initialize_bone_layer_properties(armature):
 def update_bone_layer_list(self, context):
     armature = context.view_layer.objects.active
     if armature and armature.type == "ARMATURE":
-        # Initialize npanel_name if not present
-        if "npanel_name" not in armature.data:
-            armature.data["npanel_name"] = "Animation"
+        # Initialize Side Panel_name if not present
+        if "sidepanel_name" not in armature.data:
+            armature.data["sidepanel_name"] = "Animation"
 
-        # Update bone layers based on current armature data
-        update_bone_layers(armature)
+        # Update RIG UI based on current armature data
+        update_rig_ui(armature)
 
-        # Ensure all bone layers have necessary properties
+        # Ensure all RIG UI have necessary properties
         for layer in armature.data.collections.values():
             if "UI_include" not in layer:
                 layer["UI_include"] = False
@@ -118,7 +200,7 @@ def update_bone_layer_display_names(armature):
                     ] = True  # Default value, change as needed
 
 
-def update_bone_layers(armature):
+def update_rig_ui(armature):
     global should_update
     if not should_update or not armature or armature.type != "ARMATURE":
         return
@@ -171,9 +253,7 @@ class AMP_UL_BoneLayers(bpy.types.UIList):
                 row.prop(bone_layer, '["UI_include"]', icon=ui_include_icon, text="")
 
                 # Button to update icon from clipboard
-                icon_op = row.operator(
-                    "bone_layers.paste_icon", text="", icon="PASTEDOWN"
-                )
+                icon_op = row.operator("rig_ui.paste_icon", text="", icon="PASTEDOWN")
                 icon_op.bone_layer_name = item.name
 
                 # Set default icon to BLANK1 if not set or set to NONE
@@ -194,23 +274,23 @@ class AMP_UL_BoneLayers(bpy.types.UIList):
                 sub_row.prop(bone_layer, '["priority"]', text="")
 
 
-class BONE_LAYERS_OT_refresh_list(bpy.types.Operator):
-    """Refresh Bone Layers List"""
+class rig_ui_OT_refresh_list(bpy.types.Operator):
+    """Refresh RIG UI List"""
 
-    bl_idname = "bone_layers.refresh_list"
-    bl_label = "Refresh Bone Layers List"
+    bl_idname = "rig_ui.refresh_list"
+    bl_label = "Refresh RIG UI List"
 
     def execute(self, context):
         armature = context.view_layer.objects.active
         if armature and armature.type == "ARMATURE":
-            update_bone_layers(armature)
+            update_rig_ui(armature)
         return {"FINISHED"}
 
 
 class AMP_PT_BoneLayersSetup(bpy.types.Panel):
-    """Panel for managing bone layers."""
+    """Panel for managing RIG UI."""
 
-    bl_label = "Bone Layers Setup"
+    bl_label = "RIG UI Setup"
     bl_idname = "AMP_PT_BoneLayersSetup"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -228,7 +308,9 @@ class AMP_PT_BoneLayersSetup(bpy.types.Panel):
             row = layout.row(align=True)
             row.prop(scene, "amp_edit_mode", toggle=True)
             if scene.amp_edit_mode:
-                row.operator("bone_layers.refresh_list", text="", icon="FILE_REFRESH")
+                # Export button next to the refresh button
+                row.operator("rig_ui.refresh_list", text="", icon="FILE_REFRESH")
+                row.operator("rig_ui.export_rig_ui", text="", icon="EXPORT")
 
             # Check if Icon Viewer add-on is loaded
             if scene.amp_edit_mode:
@@ -243,24 +325,24 @@ class AMP_PT_BoneLayersSetup(bpy.types.Panel):
                 else:
                     # Button to load Icon Viewer
                     layout.operator(
-                        "bone_layers.load_icon_viewer", text="Activate Icon Viewer"
+                        "rig_ui.load_icon_viewer", text="Activate Icon Viewer"
                     )
 
             if scene.amp_edit_mode:
                 # Draw bone layer list first
                 draw_bone_layer_list(self, context)
 
-                # Display armature name, NPanel name field, and refresh button
+                # Display armature name, sidepanel name field, and refresh button
                 layout.label(text=armature.name)
                 row = layout.row()
-                row.prop(prefs, "bone_layers_npanel", text="NPanel")
+                row.prop(prefs, "rig_ui_sidepanel", text="Side Panel")
                 row.operator(
-                    "bone_layers.update_npanel_preferences",
+                    "rig_ui.update_side_panel_preferences",
                     text="",
                     icon="FILE_REFRESH",
                 )
 
-            # Draw UI buttons for bone layers
+            # Draw UI buttons for RIG UI
             ui_include_layers = any(
                 layer.get("UI_include", False)
                 for layer in armature.data.collections.values()
@@ -268,7 +350,7 @@ class AMP_PT_BoneLayersSetup(bpy.types.Panel):
             if ui_include_layers:
                 draw_bone_layer_buttons(self, context)
             else:
-                layout.label(text="Add bone layers")
+                layout.label(text="Add RIG UI")
         else:
             layout.label(text="No Armature Selected.")
 
@@ -290,7 +372,7 @@ def draw_bone_layer_list(self, context):
         row = layout.row()
         row.template_list(
             "AMP_UL_BoneLayers",
-            "bone_layers",
+            "rig_ui",
             armature.data,
             "bone_layer_properties",
             armature.data,
@@ -299,7 +381,7 @@ def draw_bone_layer_list(self, context):
 
 
 def draw_bone_layer_buttons(self, context):
-    """Draws buttons for bone layers in normal mode."""
+    """Draws buttons for RIG UI in normal mode."""
     layout = self.layout
     armature = context.view_layer.objects.active
 
@@ -342,8 +424,8 @@ def update_edit_mode(self, context):
 
 
 # Operator to show the icon selector pop-up
-class BONE_LAYERS_OT_paste_icon(bpy.types.Operator):
-    bl_idname = "bone_layers.paste_icon"
+class rig_ui_OT_paste_icon(bpy.types.Operator):
+    bl_idname = "rig_ui.paste_icon"
     bl_label = "Update Icon from Clipboard"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -378,10 +460,10 @@ class BONE_LAYERS_OT_paste_icon(bpy.types.Operator):
 
 
 # Operator to load Icon Viewer add-on
-class BONE_LAYERS_OT_load_icon_viewer(bpy.types.Operator):
+class rig_ui_OT_load_icon_viewer(bpy.types.Operator):
     """Load the Icon Viewer Add-on"""
 
-    bl_idname = "bone_layers.load_icon_viewer"
+    bl_idname = "rig_ui.load_icon_viewer"
     bl_label = "Load Icon Viewer"
 
     def execute(self, context):
@@ -389,38 +471,10 @@ class BONE_LAYERS_OT_load_icon_viewer(bpy.types.Operator):
         return {"FINISHED"}
 
 
-# Add NPanel Name property to Armature
-def register_armature_properties():
-    bpy.types.Armature.npanel_name = bpy.props.StringProperty(
-        name="NPanel Name",
-        description="Name of the NPanel where the Bone Layers panel will be displayed",
-        default="Animation",
-    )
-
-
-def unregister_armature_properties():
-    del bpy.types.Armature.npanel_name
-
-
-# Functions to register/unregister panels with dynamic NPanel names
-def register_panels(setup_npanel_name, bone_layers_npanel_name):
-    AMP_PT_BoneLayersSetup.bl_category = setup_npanel_name
-    AMP_PT_BoneLayers.bl_category = bone_layers_npanel_name
-    bpy.utils.register_class(AMP_PT_BoneLayersSetup)
-    bpy.utils.register_class(AMP_PT_BoneLayers)
-
-
-def unregister_panels():
-    if bpy.utils.unregister_class(AMP_PT_BoneLayersSetup):
-        bpy.utils.unregister_class(AMP_PT_BoneLayersSetup)
-    if bpy.utils.unregister_class(AMP_PT_BoneLayers):
-        bpy.utils.unregister_class(AMP_PT_BoneLayers)
-
-
 class AMP_PT_BoneLayers(bpy.types.Panel):
-    """Panel for displaying bone layers."""
+    """Panel for displaying RIG UI."""
 
-    bl_label = "Bone Layers"
+    bl_label = "RIG UI"
     bl_idname = "AMP_PT_BoneLayers"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -440,15 +494,15 @@ class AMP_PT_BoneLayers(bpy.types.Panel):
             if ui_include_layers:
                 draw_bone_layer_buttons(self, context)
             else:
-                layout.label(text="Add bone layers")
+                layout.label(text="Add RIG UI")
         else:
             layout.label(text="No Armature Selected.")
 
 
-# Functions to register/unregister panels with dynamic NPanel names
-def register_panels(setup_npanel_name, bone_layers_npanel_name):
-    AMP_PT_BoneLayersSetup.bl_category = setup_npanel_name
-    AMP_PT_BoneLayers.bl_category = bone_layers_npanel_name
+# Functions to register/unregister panels with dynamic Side Panel names
+def register_panels(setup_sidepanel_name, rig_ui_sidepanel_name):
+    AMP_PT_BoneLayersSetup.bl_category = setup_sidepanel_name
+    AMP_PT_BoneLayers.bl_category = rig_ui_sidepanel_name
     bpy.utils.register_class(AMP_PT_BoneLayersSetup)
     bpy.utils.register_class(AMP_PT_BoneLayers)
 
@@ -460,19 +514,19 @@ def unregister_panels():
         bpy.utils.unregister_class(AMP_PT_BoneLayers)
 
 
-# Operator to update the NPanel for the Bone Layers panel
-class BONE_LAYERS_OT_UpdateNPanel(bpy.types.Operator):
-    bl_idname = "bone_layers.update_npanel"
-    bl_label = "Update NPanel"
+# Operator to update the sidepanel for the RIG UI panel
+class rig_ui_OT_Updatesidepanel(bpy.types.Operator):
+    bl_idname = "rig_ui.update_sidepanel"
+    bl_label = "Update sidepanel"
 
     def execute(self, context):
         armature = context.view_layer.objects.active
         if armature and armature.type == "ARMATURE":
-            # Fetch npanel names from armature data
-            setup_npanel_name = armature.data.get("npanel_name", "Animation")
-            bone_layers_npanel_name = setup_npanel_name
+            # Fetch sidepanel names from armature data
+            setup_sidepanel_name = armature.data.get("sidepanel_name", "Animation")
+            rig_ui_sidepanel_name = setup_sidepanel_name
             unregister_panels()
-            register_panels(setup_npanel_name, bone_layers_npanel_name)
+            register_panels(setup_sidepanel_name, rig_ui_sidepanel_name)
         return {"FINISHED"}
 
 
@@ -489,33 +543,32 @@ class BoneLayerProperties(bpy.types.PropertyGroup):
     selected_icon: bpy.props.StringProperty(name="Selected Icon", default="BLANK1")
     icon_name: bpy.props.StringProperty(name="Icon Name", default="BLANK1")
     display_name: bpy.props.BoolProperty(name="Display Name", default=True)
-    bpy.types.Armature.npanel_name = bpy.props.StringProperty(
-        name="NPanel Name",
-        description="Name of the NPanel where the Bone Layers panel will be displayed",
+    bpy.types.Armature.sidepanel_name = bpy.props.StringProperty(
+        name="sidepanel Name",
+        description="Name of the sidepanel where the RIG UI panel will be displayed",
         default="Animation",
     )
 
 
 def register():
-    register_armature_properties()
-
     # Register classes
-    bpy.utils.register_class(BONE_LAYERS_OT_UpdateNPanelPreferences)
+    bpy.utils.register_class(rig_ui_OT_export_rig_ui)
+    bpy.utils.register_class(rig_ui_OT_UpdatesidepanelPreferences)
     bpy.utils.register_class(BoneLayerAddonPreferences)
-    bpy.utils.register_class(BONE_LAYERS_OT_UpdateNPanel)
+    bpy.utils.register_class(rig_ui_OT_Updatesidepanel)
     bpy.utils.register_class(BoneLayerProperties)
     bpy.utils.register_class(AMP_UL_BoneLayers)
-    bpy.utils.register_class(BONE_LAYERS_OT_refresh_list)
-    bpy.utils.register_class(BONE_LAYERS_OT_load_icon_viewer)
-    bpy.utils.register_class(BONE_LAYERS_OT_paste_icon)
+    bpy.utils.register_class(rig_ui_OT_refresh_list)
+    bpy.utils.register_class(rig_ui_OT_load_icon_viewer)
+    bpy.utils.register_class(rig_ui_OT_paste_icon)
     bpy.types.Armature.bone_layer_properties = bpy.props.CollectionProperty(
         type=BoneLayerProperties
     )
 
-    # Initialize panels with default or stored NPanel names
+    # Initialize panels with default or stored sidepanel names
     prefs = bpy.context.preferences.addons[__name__].preferences
 
-    register_panels(prefs.bone_layers_setup_npanel, prefs.bone_layers_npanel)
+    register_panels(prefs.rig_ui_setup_sidepanel, prefs.rig_ui_sidepanel)
 
     bpy.types.Scene.amp_edit_mode = bpy.props.BoolProperty(
         name="Edit Mode", default=True, update=update_edit_mode
@@ -525,17 +578,15 @@ def register():
 
 
 def unregister():
-    unregister_armature_properties()
-    bpy.utils.unregister_class(BONE_LAYERS_OT_UpdateNPanelPreferences)
+    bpy.utils.unregister_class(rig_ui_OT_export_rig_ui)
+    bpy.utils.unregister_class(rig_ui_OT_UpdatesidepanelPreferences)
     bpy.utils.unregister_class(BoneLayerAddonPreferences)
-    bpy.utils.unregister_class(BONE_LAYERS_OT_UpdateNPanel)
-    bpy.utils.unregister_class(BONE_LAYERS_OT_load_icon_viewer)
-    bpy.utils.unregister_class(BONE_LAYERS_OT_paste_icon)
-    bpy.utils.unregister_class(BONE_LAYERS_OT_refresh_list)
+    bpy.utils.unregister_class(rig_ui_OT_Updatesidepanel)
+    bpy.utils.unregister_class(rig_ui_OT_load_icon_viewer)
+    bpy.utils.unregister_class(rig_ui_OT_paste_icon)
+    bpy.utils.unregister_class(rig_ui_OT_refresh_list)
     bpy.utils.unregister_class(BoneLayerProperties)
     bpy.utils.unregister_class(AMP_UL_BoneLayers)
-    # bpy.utils.unregister_class(AMP_PT_BoneLayersSetup)
-    # bpy.utils.unregister_class(AMP_PT_BoneLayers)
     del bpy.types.Scene.selected_bone_layer_name
     del bpy.types.Scene.amp_edit_mode
     del bpy.types.Armature.active_bone_layer_index
