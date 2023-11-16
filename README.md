@@ -7,9 +7,9 @@ Bone Layers is an innovative Blender add-on designed to enhance the animation wo
 ## **Features**
 
 - **Bone Layer Management:** Easily manage bone layers directly from the Blender UI.
-- **Customizable NPanel Integration:** Configure bone layer properties such as visibility, priority, and custom icons within the NPanel.
+- **Customizable Side Panel Integration:** Configure bone layer properties such as visibility, priority, and custom icons within the Side Panel.
 - **Dynamic UI Elements:** Interactive elements for managing bone layers, including visibility toggles and icon updates.
-- **Compatibility:** Designed for Blender versions 3.6.0 and 4.0.0.
+- **Compatibility:** Designed for Blender version 4.0.0.
 
 ## **Installation**
 
